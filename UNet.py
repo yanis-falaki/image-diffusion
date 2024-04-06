@@ -94,9 +94,6 @@ class UNetModel(nn.Module):
         self.upsample2 = UpsampleBlock(12, time_emb_dim) # ends up with 6, 32 x 32
         self.upsample3 = UpsampleBlock(6, time_emb_dim) # ends up with 3, 64 x 64
 
-        self.fc1 = nn.Linear(64 * 64 * 3, 64)
-        self.fc2 = nn.Linear(64, 1)
-
     def forward(self, x, t):
         # Get time embedding
         time_emb = self.time_mlp(t)
@@ -108,11 +105,6 @@ class UNetModel(nn.Module):
         x3 = self.upsample1(x3, x2, time_emb)
         x3 = self.upsample2(x3, x1, time_emb)
         x3 = self.upsample3(x3, x, time_emb)
-
-        x3 = torch.flatten(x3, start_dim=1)
-
-        x3 = F.relu(self.fc1(x3))
-        x3 = self.fc2(x3)
 
         return x3
         
