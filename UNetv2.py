@@ -23,12 +23,9 @@ class Block(nn.Module):
         groups = channels // 4
         self.conv1 = nn.Conv2d(channels, channels, 3, 1, 1)
         self.gn1 = nn.GroupNorm(groups, channels)
-        self.conv2 = nn.Conv2d(channels, channels, 3, 1, 1)
-        self.gn2 = nn.GroupNorm(groups, channels)
 
     def forward(self, x):
         x = F.relu(self.gn1(self.conv1(x)))
-        x = F.relu(self.gn2(self.conv2(x)))
         return x
     
 
@@ -57,7 +54,7 @@ class Upsample(nn.Module):
         groups = out_channels // 4
         self.upconv = nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1)
         self.gn1 = nn.GroupNorm(groups, out_channels)
-        self.downconv = nn.ConvTranspose2d(out_channels * 2, out_channels, 2, 2, 0) # Multiplying out channels by 2 as this takes the concatenated tensor as input
+        self.downconv = nn.ConvTranspose2d(out_channels * 2, out_channels, 3, 1, 1) # Multiplying out channels by 2 as this takes the concatenated tensor as input
         self.gn2 = nn.GroupNorm(groups, out_channels)
         self.time_mlp = nn.Sequential(
             nn.Linear(time_emb_dim, out_channels),
@@ -86,17 +83,17 @@ class GoodUNet(nn.Module):
         self.gn1 = nn.GroupNorm(initial_channels // 4, initial_channels)
 
         self.blocks1 = nn.Sequential(*[Block(initial_channels) for block in range(n)])
-        self.downsample1 = Downsample(initial_channels, initial_channels * 2)
+        self.downsample1 = Downsample(initial_channels, initial_channels * 2, time_emb_dim)
         self.blocks2 = nn.Sequential(*[Block(initial_channels * 2) for block in range(n)])
-        self.downsample2 = Downsample(initial_channels * 2, initial_channels * 4)
+        self.downsample2 = Downsample(initial_channels * 2, initial_channels * 4, time_emb_dim)
         self.blocks3 = nn.Sequential(*[Block(initial_channels * 4) for block in range(n)])
-        self.downsample3 = Downsample(initial_channels * 4, initial_channels * 8)
+        self.downsample3 = Downsample(initial_channels * 4, initial_channels * 8, time_emb_dim)
         self.blocks4 = nn.Sequential(*[Block(initial_channels * 8) for block in range(n)]) # Bottleneck
-        self.upsample1 = Upsample(initial_channels * 8, initial_channels * 4)
+        self.upsample1 = Upsample(initial_channels * 8, initial_channels * 4, time_emb_dim)
         self.blocks5 = nn.Sequential(*[Block(initial_channels * 4) for block in range(n)])
-        self.upsample2 = Upsample(initial_channels * 4, initial_channels * 2)
+        self.upsample2 = Upsample(initial_channels * 4, initial_channels * 2, time_emb_dim)
         self.blocks6 = nn.Sequential(*[Block(initial_channels * 2) for block in range(n)])
-        self.upsample3 = Upsample(initial_channels * 2, initial_channels)
+        self.upsample3 = Upsample(initial_channels * 2, initial_channels, time_emb_dim)
         self.blocks7 = nn.Sequential(*[Block(initial_channels) for block in range(n)])
 
         self.outputconv = nn.Conv2d(initial_channels, input_channels, 1, 1, 0)
