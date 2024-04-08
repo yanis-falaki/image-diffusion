@@ -71,32 +71,34 @@ class Upsample(nn.Module):
         return x
 
 class GoodUNet(nn.Module):
-    def __init__(self, n=1, input_channels=3, initial_channels=32, time_emb_dim=32):
+    def __init__(self, n=1, input_channels=3, time_emb_dim=32, channel_sequence=[32, 64, 128, 256]):
         super(GoodUNet, self).__init__()
+        self.channel_sequence = channel_sequence
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(time_emb_dim),
             nn.Linear(time_emb_dim, time_emb_dim),
             nn.ReLU()
         )
 
-        self.conv1 = nn.Conv2d(input_channels, initial_channels, 3, 1, 1)
-        self.gn1 = nn.GroupNorm(initial_channels // 4, initial_channels)
+        self.conv1 = nn.Conv2d(input_channels, channel_sequence[0], 3, 1, 1)
+        self.gn1 = nn.GroupNorm(channel_sequence[0] // 4, channel_sequence[0])
 
-        self.blocks1 = nn.Sequential(*[Block(initial_channels) for block in range(n)])
-        self.downsample1 = Downsample(initial_channels, initial_channels * 2, time_emb_dim)
-        self.blocks2 = nn.Sequential(*[Block(initial_channels * 2) for block in range(n)])
-        self.downsample2 = Downsample(initial_channels * 2, initial_channels * 4, time_emb_dim)
-        self.blocks3 = nn.Sequential(*[Block(initial_channels * 4) for block in range(n)])
-        self.downsample3 = Downsample(initial_channels * 4, initial_channels * 8, time_emb_dim)
-        self.blocks4 = nn.Sequential(*[Block(initial_channels * 8) for block in range(n)]) # Bottleneck
-        self.upsample1 = Upsample(initial_channels * 8, initial_channels * 4, time_emb_dim)
-        self.blocks5 = nn.Sequential(*[Block(initial_channels * 4) for block in range(n)])
-        self.upsample2 = Upsample(initial_channels * 4, initial_channels * 2, time_emb_dim)
-        self.blocks6 = nn.Sequential(*[Block(initial_channels * 2) for block in range(n)])
-        self.upsample3 = Upsample(initial_channels * 2, initial_channels, time_emb_dim)
-        self.blocks7 = nn.Sequential(*[Block(initial_channels) for block in range(n)])
+        self.downblocks = nn.ModuleList()
+        self.downsamples = nn.ModuleList()
+        for i in range(len(channel_sequence) - 1): # We dont downsample on the bottleneck, thus the length minus 1
+            self.downblocks.append(nn.Sequential(*[Block(channel_sequence[i]) for block in range(n)]))
+            self.downsamples.append(Downsample(channel_sequence[i], channel_sequence[i+1], time_emb_dim))
 
-        self.outputconv = nn.Conv2d(initial_channels, input_channels, 1, 1, 0)
+        self.upblocks = nn.ModuleList()
+        self.upsamples = nn.ModuleList()
+        # Reverse the channel sequence for upsampling
+        reversed_channels = list(reversed(channel_sequence))
+        for i in range(len(reversed_channels)):
+            self.upblocks.append(nn.Sequential(*[Block(reversed_channels[i]) for block in range(n)]))
+            if i != len(reversed_channels)-1:
+                self.upsamples.append(Upsample(reversed_channels[i], reversed_channels[i+1], time_emb_dim))
+
+        self.outputconv = nn.Conv2d(channel_sequence[0], input_channels, 1, 1, 0)
     
     def forward(self, x, t):
         skip_connections = []
@@ -104,20 +106,17 @@ class GoodUNet(nn.Module):
 
         x = F.relu(self.gn1(self.conv1(x)))
         skip_connections.append(x)
-        x = self.blocks1(x)
-        x = self.downsample1(x, t)
-        skip_connections.append(x)
-        x = self.blocks2(x)
-        x = self.downsample2(x, t)
-        skip_connections.append(x)
-        x = self.blocks3(x)
-        x = self.downsample3(x, t)
-        x = self.blocks4(x)
-        x = self.upsample1(x, skip_connections.pop(), t)
-        x = self.blocks5(x)
-        x = self.upsample2(x, skip_connections.pop(), t)
-        x = self.blocks6(x)
-        x = self.upsample3(x, skip_connections.pop(), t)
-        x = self.blocks7(x)
+
+        for i in range(len(self.channel_sequence) - 1):
+            x = self.downblocks[i](x)
+            x = self.downsamples[i](x, t)
+            if i != len(self.channel_sequence) - 2: # We dont have a residual connection for the last block as its going into the bottleneck
+                skip_connections.append(x)
+
+        for i in range(len(self.channel_sequence)):
+            x = self.upblocks[i](x) # When i is zero, this is the bottleneck
+            if i != len(self.channel_sequence) - 1: # We dont upsample on the last block
+                x = self.upsamples[i](x, skip_connections.pop(), t)
+
         x = self.outputconv(x)
         return x
