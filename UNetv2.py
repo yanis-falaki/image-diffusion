@@ -71,7 +71,7 @@ class Upsample(nn.Module):
         return x
 
 class GoodUNet(nn.Module):
-    def __init__(self, n, input_channels=3, initial_channels=32, time_emb_dim=32):
+    def __init__(self, n=1, input_channels=3, initial_channels=32, time_emb_dim=32):
         super(GoodUNet, self).__init__()
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(time_emb_dim),
